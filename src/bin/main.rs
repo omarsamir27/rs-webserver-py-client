@@ -1,14 +1,15 @@
 extern crate core;
+
 use libwebs::http_magic;
+use libwebs::http_magic::{HttpHeaders, HttpRequest, HttpStatusCode, HttpVersion};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::time::Duration;
-use std::{fs, net};
-use libwebs::http_magic::{HttpHeaders, HttpStatusCode, HttpVersion};
+use std::{fs, io, net, thread};
 
 fn setup() -> TcpListener {
-    let tcp_listener = net::TcpListener::bind("192.168.1.66:1025").unwrap_or_else(|err| {
+    let tcp_listener = net::TcpListener::bind("127.0.0.1:80").unwrap_or_else(|err| {
         println!("Could not start server");
         std::process::exit(-1);
     });
@@ -30,28 +31,56 @@ fn setup() -> TcpListener {
 fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
     let mut buffer = vec![0u8; 1024];
     let mut data: Vec<u8> = Vec::with_capacity(1024);
-    stream.set_read_timeout(Some(Duration::new(2, 0)));
-    while stream.read(&mut buffer).unwrap_or(0) != 0 {
-        data.extend(buffer.iter());
+    stream.set_nonblocking(true).expect("Could not set socket nonblocking");
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(_) => data.extend(&buffer),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                break
+            },
+            Err(_) => {
+                println!("over here");
+                break
+            }
+        }
     }
     data
 }
 
+
 fn process_stream(mut stream: TcpStream) {
-    let data = read_stream(&mut stream);
-    println!("{:?}",data);
-    let request = http_magic::HttpRequest::from_vec(data.as_slice());
+    let mut request = HttpRequest::default();
+    let mut data = read_stream(&mut stream);
+    loop {
+        let read_request = HttpRequest::from_vec(data.as_slice());
+        if read_request.is_none(){ // so headers not complete yet
+            data.extend(read_stream(&mut stream));
+        }
+        else if read_request.as_ref().unwrap().is_body_complete_or_absent() {
+            request = read_request.unwrap().clone();
+            break;
+        }else{
+            request = read_request.unwrap().clone();
+            while !request.is_body_complete_or_absent(){
+                request.body.extend(read_stream(&mut stream));
+            }
+            break;
+        }
+    }
     let file = fs::read("/home/omar/srv/www/Screenshot.png").unwrap();
     let mut hdr = HttpHeaders::new();
-    hdr.insert("Content-Type".to_string(),vec!["image/png".to_string()]);
-    let lol = http_magic::HttpResponse{
-        version:HttpVersion::HTTP1x0,
-        status:HttpStatusCode::Ok,
+    hdr.insert("Content-Type".to_string(), vec!["image/png".to_string()]);
+    let lol = http_magic::HttpResponse {
+        version: HttpVersion::HTTP1x0,
+        status: HttpStatusCode::Ok,
         headers: hdr,
-        body: file
+        body: file,
     };
-    fs::write(Path::new("/home/omar/testout.png"), lol.body.clone());
+// fs::write(Path::new("/home/omar/testout.png"), lol.body.clone());
+// println!("{}",);
     stream.write_all(lol.to_vec().as_slice());
+    // let request = http_magic::HttpRequest::from_vec(data.as_slice());
+
 }
 
 fn main() {

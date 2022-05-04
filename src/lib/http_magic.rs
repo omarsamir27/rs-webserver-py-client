@@ -1,13 +1,10 @@
-/* BODY IMPLEMENTED AS STRING IN HTTP REQUEST AND RESPONSE BUT IT CAN BE BINARY DATA SO REPAIR THIS*/
-/* BODY IMPLEMENTED AS STRING IN HTTP REQUEST AND RESPONSE BUT IT CAN BE BINARY DATA SO REPAIR THIS*/
-/* BODY IMPLEMENTED AS STRING IN HTTP REQUEST AND RESPONSE BUT IT CAN BE BINARY DATA SO REPAIR THIS*/
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Write;
 use crate::utils;
 
 type Result<T> = std::result::Result<T, HttpParseError>;
-type HttpHeaders = HashMap<String, Vec<String>>;
+pub type HttpHeaders = HashMap<String, Vec<String>>;
 
 pub fn http_headers_fmt(header_map:&HttpHeaders) -> String{
     let mut displayed = String::new();
@@ -17,6 +14,8 @@ pub fn http_headers_fmt(header_map:&HttpHeaders) -> String{
         displayed.push_str(utils::array_stringify(v.as_slice(),',').as_str());
         displayed.push_str("\r\n");
     };
+    displayed.pop();
+    displayed.pop();
     displayed
 }
 
@@ -100,6 +99,17 @@ impl HttpResponse {
     pub fn new(version:HttpVersion,status:HttpStatusCode,headers:HttpHeaders,body:&[u8])-> HttpResponse{
         HttpResponse{version,status,headers,body:body.to_vec()}
     }
+    pub fn to_vec(&self)-> Vec<u8>{
+        let mut response: Vec<u8> = Vec::new();
+        response.extend_from_slice(self.version.to_string().as_bytes());
+        response.push(' ' as u8);
+        response.extend_from_slice(self.status.to_string().as_bytes());
+        response.extend_from_slice("\r\n".as_bytes());
+        response.extend_from_slice(http_headers_fmt(&self.headers).as_bytes());
+        response.extend_from_slice("\r\n\r\n".as_bytes());
+        response.extend_from_slice(self.body.as_slice());
+        response
+    }
 }
 impl Display for HttpResponse{
      fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -112,6 +122,7 @@ impl Display for HttpResponse{
         )
     }
 }
+
 
 pub struct HttpRequest {
     pub method: HttpMethod,

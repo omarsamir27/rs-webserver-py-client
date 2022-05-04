@@ -5,9 +5,10 @@ use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::time::Duration;
 use std::{fs, net};
+use libwebs::http_magic::{HttpHeaders, HttpStatusCode, HttpVersion};
 
 fn setup() -> TcpListener {
-    let tcp_listener = net::TcpListener::bind("127.0.0.1:80").unwrap_or_else(|err| {
+    let tcp_listener = net::TcpListener::bind("192.168.1.66:1025").unwrap_or_else(|err| {
         println!("Could not start server");
         std::process::exit(-1);
     });
@@ -26,7 +27,7 @@ fn setup() -> TcpListener {
 //     clean_utf8
 // }
 
-fn read_stream<'a>(stream: &mut TcpStream) -> Vec<u8> {
+fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
     let mut buffer = vec![0u8; 1024];
     let mut data: Vec<u8> = Vec::with_capacity(1024);
     stream.set_read_timeout(Some(Duration::new(2, 0)));
@@ -38,11 +39,19 @@ fn read_stream<'a>(stream: &mut TcpStream) -> Vec<u8> {
 
 fn process_stream(mut stream: TcpStream) {
     let data = read_stream(&mut stream);
+    println!("{:?}",data);
     let request = http_magic::HttpRequest::from_vec(data.as_slice());
-
-    let lol = "lol ya negm";
-    fs::write(Path::new("/home/omar/testout.txt"), req.body);
-    stream.write(lol.as_bytes());
+    let file = fs::read("/home/omar/srv/www/Screenshot.png").unwrap();
+    let mut hdr = HttpHeaders::new();
+    hdr.insert("Content-Type".to_string(),vec!["image/png".to_string()]);
+    let lol = http_magic::HttpResponse{
+        version:HttpVersion::HTTP1x0,
+        status:HttpStatusCode::Ok,
+        headers: hdr,
+        body: file
+    };
+    fs::write(Path::new("/home/omar/testout.png"), lol.body.clone());
+    stream.write_all(lol.to_vec().as_slice());
 }
 
 fn main() {

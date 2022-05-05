@@ -3,9 +3,9 @@ name = "rs-webserver"
 version = "0.1.0"
 edition = "2021"
 
-[profile.dev]
-opt-level = 3               # Use slightly better optimizations.
-overflow-checks = false     # Disable integer overflow checks.
+#[profile.dev]
+#opt-level = 3               # Use slightly better optimizations.
+#overflow-checks = false     # Disable integer overflow checks.
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -22,3 +22,4 @@ rayon = "1.5.2"
 fsio = "0.3.0"
 new_mime_guess = "4.0.1"
 tree_magic = "0.2.3"
+rand = "0.8.5"

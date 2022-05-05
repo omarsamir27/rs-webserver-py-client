@@ -1,10 +1,10 @@
+use crate::http_magic::HttpMethod::GET;
+use crate::http_magic::HttpVersion::HTTP1x1;
 use crate::utils;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::Write;
 use std::str::FromStr;
-use crate::http_magic::HttpMethod::GET;
-use crate::http_magic::HttpVersion::HTTP1x1;
 
 type Result<T> = std::result::Result<T, HttpParseError>;
 
@@ -39,13 +39,17 @@ impl HttpParseError {
 #[allow(non_camel_case_types)]
 pub enum HttpStatusCode {
     Ok = 200,
+    Created = 201,
     Not_Found = 404,
+    Conflict = 409,
 }
 impl Display for HttpStatusCode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let (code, codename) = match self {
             HttpStatusCode::Ok => (200, "OK"),
             HttpStatusCode::Not_Found => (404, "Not Found"),
+            HttpStatusCode::Conflict => (409, "Conflict"),
+            HttpStatusCode::Created => (201, "Created"),
             _ => (-1, "BAD"),
         };
         write!(f, "{} {}", code, codename)
@@ -143,63 +147,60 @@ impl Display for HttpResponse {
 
 #[derive(Clone)]
 pub struct HttpRequest {
-    pub method: HttpMethod ,
+    pub method: HttpMethod,
     pub requested_object: String,
     pub version: HttpVersion,
     pub headers: HttpHeaders,
     pub body: Vec<u8>,
 }
 
-
 impl Default for HttpRequest {
     fn default() -> Self {
         HttpRequest {
-            method : GET,
+            method: GET,
             requested_object: String::default(),
-            version : HTTP1x1,
-            headers : HttpHeaders::default(),
-            body : Vec::default()
+            version: HTTP1x1,
+            headers: HttpHeaders::default(),
+            body: Vec::default(),
         }
     }
 }
 impl HttpRequest {
-    pub fn is_body_complete_or_absent(&self) -> bool{
-        let body_len = match self.headers.get("Content-Length"){
-            None => {return true}
-            Some(vec) => {usize::from_str(vec[0].as_str()).unwrap()}
+    pub fn is_body_complete_or_absent(&self) -> bool {
+        let body_len = match self.headers.get("Content-Length") {
+            None => return true,
+            Some(vec) => usize::from_str(vec[0].as_str().trim()).unwrap(),
         };
         body_len == self.body.len()
     }
-    pub fn headers_terminated(msg:&[u8]) -> Option<usize>{
-       let end_index =  unsafe {
-            msg.iter()
-                .position(|x| {
-                    let x_ptr: *const u8 = x;
-                    *x_ptr == 13
-                        && *(x_ptr.offset(1)) == 10
-                        && *(x_ptr.offset(2)) == 13
-                        && *(x_ptr.offset(3)) == 10
-                })
+    pub fn headers_terminated(msg: &[u8]) -> Option<usize> {
+        let end_index = unsafe {
+            msg.iter().position(|x| {
+                let x_ptr: *const u8 = x;
+                *x_ptr == 13
+                    && *(x_ptr.offset(1)) == 10
+                    && *(x_ptr.offset(2)) == 13
+                    && *(x_ptr.offset(3)) == 10
+            })
         };
-    end_index
+        end_index
     }
     fn split_body_from_msg(req: &[u8]) -> Option<(String, Vec<u8>)> {
         let has_headers = HttpRequest::headers_terminated(req);
         let mut body_sep_index = 0;
         match has_headers {
-            None => { return None }
-            Some(index) => { body_sep_index = index}
+            None => return None,
+            Some(index) => body_sep_index = index,
         }
         let rest = &req[..body_sep_index];
         let body = &req[body_sep_index + 4..];
         Some((String::from_utf8_lossy(rest).to_string(), body.to_vec()))
     }
     pub fn from_vec(req: &[u8]) -> Option<HttpRequest> {
-        let (rest, body) = match HttpRequest::split_body_from_msg(req)
-         {
-             None => {return None}
-             Some(x) => {(x.0,x.1)}
-         };
+        let (rest, mut body) = match HttpRequest::split_body_from_msg(req) {
+            None => return None,
+            Some(x) => (x.0, x.1),
+        };
         let (req_line, headers) = rest.split_once("\r\n").unwrap();
         let req_line: Vec<&str> = req_line.split_ascii_whitespace().collect();
         let (method, requested_object, version) = (
@@ -217,12 +218,17 @@ impl HttpRequest {
                 .collect();
             headers.insert(header_key.to_string(), header_values);
         }
+        if headers.get("Content-Length").is_some() {
+            let body_length =
+                usize::from_str(headers.get("Content-Length").unwrap()[0].as_str().trim()).unwrap();
+            body.resize(body_length, 0);
+        }
         Some(HttpRequest {
             method,
             requested_object: requested_object.to_string(),
             version,
             headers,
-            body,
+            body
         })
     }
 }

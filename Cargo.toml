@@ -14,3 +14,4 @@ name = "rs-webserver"
 path = "src/bin/main.rs"
 
 [dependencies]
+rayon = "1.5.2"

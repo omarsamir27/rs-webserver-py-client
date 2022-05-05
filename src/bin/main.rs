@@ -76,17 +76,26 @@ fn process_stream(mut stream: TcpStream) {
         headers: hdr,
         body: file,
     };
-// fs::write(Path::new("/home/omar/testout.png"), lol.body.clone());
-// println!("{}",);
+
     stream.write_all(lol.to_vec().as_slice());
-    // let request = http_magic::HttpRequest::from_vec(data.as_slice());
+
+}
+
+fn handle_request(){
 
 }
 
 fn main() {
     let listener = setup();
+    println!("{}",thread::available_parallelism().unwrap());
+    println!("{:?}",thread::current().id());
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(6).build().unwrap();
     for stream in listener.incoming() {
-        // println!("{:?}",stream.unwrap());
-        process_stream(stream.unwrap())
+        pool.spawn(move || {
+            println!("{:?}",thread::current().id());
+            process_stream(stream.unwrap());
+        });
+
     }
+
 }

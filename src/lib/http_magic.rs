@@ -23,7 +23,7 @@ pub fn http_headers_fmt(header_map: &HttpHeaders) -> String {
     displayed.pop();
     displayed
 }
-
+#[derive(Debug)]
 pub struct HttpParseError {
     detail: String,
 }

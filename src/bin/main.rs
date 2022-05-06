@@ -41,8 +41,8 @@ fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
         .set_nonblocking(true)
         .expect("Could not set socket nonblocking");
     loop {
-        println!("{}",data.len());
-        println!("{}",String::from_utf8_lossy(buffer.as_slice()));
+        // println!("{}",data.len());
+        // println!("{}",String::from_utf8_lossy(buffer.as_slice()));
         match stream.read(&mut buffer) {
             Ok(_) => data.extend(&buffer),
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -56,27 +56,32 @@ fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
 }
 
 fn process_stream(mut stream: TcpStream) {
-    let mut request = HttpRequest::default();
-    let mut data = read_stream(&mut stream);
     loop {
-        let read_request = HttpRequest::from_vec(data.as_slice());
-        if read_request.is_none() {
-            // so headers not complete yet
-            let d = read_stream(&mut stream);
-            data.extend(d);
-        } else if read_request.as_ref().unwrap().is_body_complete_or_absent() {
-            request = read_request.unwrap().clone();
-            break;
-        } else {
-            request = read_request.unwrap().clone();
-            while !request.is_body_complete_or_absent() {
-                let d = read_stream(&mut stream);
-                request.body.extend(d);
+        let mut request = HttpRequest::default();
+        let mut data = read_stream(&mut stream);
+        loop {
+            let read_request = HttpRequest::from_vec(data.as_slice());
+            if read_request.is_none() {
+                // so headers not complete yet
+                // let d = read_stream(&mut stream);
+                data.extend(read_stream(&mut stream));
+            } else if read_request.as_ref().unwrap().is_body_complete_or_absent() {
+                request = read_request.unwrap().clone();
+                break;
+            } else {
+                request = read_request.unwrap().clone();
+                while !request.is_body_complete_or_absent() {
+                    request.body.extend(read_stream(&mut stream));
+                }
+                break;
             }
-            break;
         }
+        handle_request(&mut stream, &request);
+        println!("{:?}",rayon::current_thread_index().unwrap());
+        if  matches!(request.version,HttpVersion::HTTP1x0)  { break}
     }
-    handle_request(&mut stream, &request);
+
+
 }
 
 fn handle_request(stream: &mut TcpStream, request: &HttpRequest) {
@@ -167,6 +172,7 @@ fn handle_request(stream: &mut TcpStream, request: &HttpRequest) {
             ]),
             body,
         } };
+    stream.set_nonblocking(false);
     stream.write_all(response.to_vec().as_slice());
 
 }

@@ -2,29 +2,29 @@ extern crate core;
 use fragile::Fragile;
 use fsio::file;
 use fsio::path::as_path::AsPath;
+use lazy_static::lazy_static;
 use libwebs::config::*;
-use libwebs::control::{ThreadStats, CONTROL_THREAD_SLEEP, ControlStat};
+use libwebs::control::{
+    ControlStat, CONTROL_THREAD_SLEEP, KEEP_ALIVE_TIMEOUT, MAX_KEEP_ALIVE_REQUESTS,
+};
 use libwebs::http_magic::{
     HttpHeaders, HttpMethod, HttpRequest, HttpResponse, HttpStatusCode, HttpVersion,
 };
-use libwebs::{http_magic, utils};
-use num_cpus;
-use std::borrow::{Borrow, BorrowMut};
-use std::cell::{RefCell, RefMut};
-use std::fmt::format;
+use libwebs::utils;
+
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::Path;
-use std::ptr::addr_of_mut;
-use std::sync::atomic::Ordering::Relaxed;
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
-use std::{env, fs, io, net, thread};
-use std::collections::HashMap;
-use rayon::current_thread_index;
+
+use std::sync::RwLock;
+use std::{env, fs, io, net};
 use stopwatch::Stopwatch;
 
 // static conf : Vec<i32> = Vec::default();
+lazy_static! {
+    static ref OPEN_STREAMS: RwLock<u32> = RwLock::new(0);
+    static ref CONTROL_STATS: RwLock<ControlStat> = ControlStat::new();
+    static ref OPEN_THREADS: RwLock<u32> = RwLock::new(0);
+}
 
 fn setup() -> TcpListener {
     let tcp_listener = net::TcpListener::bind(BIND_ADDRESS).unwrap_or_else(|err| {
@@ -35,16 +35,6 @@ fn setup() -> TcpListener {
     tcp_listener
 }
 
-// fn sanitize_non_utf8(input: &str) -> String {
-//     let mut clean_utf8 = String::with_capacity(input.len());
-//     for c in input.as_bytes() {
-//         print!("{}",c);
-//         // if *c != 0 {
-//         //     clean_utf8.push(*c as char)
-//         // }
-//     }
-//     clean_utf8
-// }
 fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
     let mut buffer = vec![0u8; 1024];
     let mut data: Vec<u8> = Vec::with_capacity(1024);
@@ -66,18 +56,28 @@ fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
     data
 }
 
-unsafe fn process_stream(mut stream: TcpStream, control_stats: Arc<HashMap<usize, RwLock<ThreadStats>>>) {
-        let control_stats = control_stats.get(&current_thread_index().unwrap()).unwrap();
+fn process_stream(mut stream: TcpStream) {
+    *OPEN_THREADS.write().unwrap() += 1;
+    let mut idle_timer = Stopwatch::start_new();
+    let mut num_requests = 0u16;
+    let thread_index = rayon::current_thread_index().unwrap();
     loop {
-        println!("{:?}", rayon::current_thread_index().unwrap());
         let mut request = HttpRequest::default();
         let mut data = Vec::default();
         loop {
             data.extend(read_stream(&mut stream));
             if data.len() != 0 {
-                control_stats.write().unwrap().restart_timer();
-                control_stats.write().unwrap().set_processing(true);
                 break;
+            } else if idle_timer.elapsed().as_secs() >= KEEP_ALIVE_TIMEOUT as u64 {
+                return;
+            } else if *OPEN_STREAMS.read().unwrap() >= *OPEN_THREADS.read().unwrap() {
+                if CONTROL_STATS.read().unwrap().thread_index == thread_index {
+                    CONTROL_STATS.write().unwrap().reset();
+                    return;
+                } else if CONTROL_STATS.read().unwrap().idle_time < idle_timer.elapsed() {
+                    CONTROL_STATS.write().unwrap().idle_time = idle_timer.elapsed();
+                    CONTROL_STATS.write().unwrap().thread_index = thread_index;
+                }
             }
         }
 
@@ -85,27 +85,27 @@ unsafe fn process_stream(mut stream: TcpStream, control_stats: Arc<HashMap<usize
             let read_request = HttpRequest::from_vec(data.as_slice());
             if read_request.is_none() {
                 // so headers not complete yet
-                // let d = read_stream(&mut stream);
                 data.extend(read_stream(&mut stream));
             } else if read_request.as_ref().unwrap().is_body_complete_or_absent() {
                 request = read_request.unwrap().clone();
                 break;
             } else {
                 request = read_request.unwrap().clone();
+                idle_timer.reset();
                 while !request.is_body_complete_or_absent() {
                     request.body.extend(read_stream(&mut stream));
                 }
                 break;
             }
         }
-        control_stats.write().unwrap().increment_requests();
+        num_requests += 1;
         handle_request(&mut stream, &request);
-        control_stats.write().unwrap().set_processing(false);
-        if matches!(request.version, HttpVersion::HTTP1x0) || control_stats.read().unwrap().must_die() {
-            control_stats.write().unwrap().die();
-            break;
+        if matches!(request.version, HttpVersion::HTTP1x0)
+            || num_requests >= MAX_KEEP_ALIVE_REQUESTS
+            || idle_timer.elapsed().as_secs() >= 5
+        {
+            return;
         }
-        // println!("{}",rayon::current_num_threads());
     }
 }
 
@@ -205,59 +205,20 @@ fn path_setup() {
     let mut www_root = format!("{}/{}", env::var("HOME").unwrap(), SERVER_ROOT);
     env::set_current_dir(www_root);
 }
-//
-// unsafe fn control_thread(
-//     mut controls: Arc<HashMap<usize, RwLock<ThreadStats>>>,
-//     open_streams: &Mutex<usize>,
-//     num_threads: usize,
-// ) {
-//     // loop {
-//     // then more streams opened than threads available , must kill some thread
-//     println!("controlling");
-//     if *open_streams.lock().unwrap() > num_threads {
-//         println!("controlling");
-//         controls
-//             .iter()
-//             .max_by(|&x, &y| x.1.read().unwrap().time_since_idle().cmp(&y.1.read().unwrap().time_since_idle()))
-//             .unwrap().1.write().unwrap().verdict.store(true,Relaxed);
-//     }
-//     // }
-//     todo!()
-// }
 
 fn main() {
     path_setup();
     let listener = setup();
-    let num_threads = num_cpus::get_physical() - 1;
-    println!("{}", num_threads);
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(num_threads)
-        .build()
-        .unwrap();
-    let control = Arc::new(ControlStat::new());
-    // let mut stats_vec = HashMap::new();
-    // // let mut stats_index = Vec::new();
-    // for i in 0..pool.current_num_threads() {
-    //     stats_vec.insert(i,RwLock::new(ThreadStats::default()));
-    //     // stats_index.push(i);
-    // }
-    // let share = Arc::new(stats_vec);
-    let mut open_streams = Mutex::new(0usize);
-    // rayon::spawn(|| control_thread(&mut stats_vec, &open_streams));
-    // let mut control_timer = Stopwatch::start_new();
-    unsafe {
-        for stream in listener.incoming() {
-            println!("{:?}", stream.as_ref().unwrap());
-            *open_streams.lock().unwrap() += 1;
-            pool.scope(|_| {
-                let thread_index = rayon::current_thread_index().unwrap();
-                process_stream(stream.unwrap(), share.clone());
-                *open_streams.lock().unwrap() -= 1;
-            });
-            if control_timer.elapsed().as_secs() >= CONTROL_THREAD_SLEEP as u64 {
-                control_thread(share.clone(), &open_streams, num_threads);
-                control_timer.restart();
-            }
-        }
+
+    let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
+
+    for stream in listener.incoming() {
+        *OPEN_STREAMS.write().unwrap() += 1;
+        *OPEN_THREADS.write().unwrap() = pool.current_num_threads() as u32;
+        pool.spawn(|| {
+            process_stream(stream.unwrap());
+            *OPEN_STREAMS.write().unwrap() -= 1;
+            // *OPEN_THREADS.write().unwrap() = (&pool).current_num_threads() as u32;
+        });
     }
 }

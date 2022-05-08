@@ -3,7 +3,6 @@ use crate::http_magic::HttpVersion::HTTP1x1;
 use crate::utils;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::io::Write;
 use std::str::FromStr;
 
 type Result<T> = std::result::Result<T, HttpParseError>;
@@ -187,11 +186,11 @@ impl HttpRequest {
     }
     fn split_body_from_msg(req: &[u8]) -> Option<(String, Vec<u8>)> {
         let has_headers = HttpRequest::headers_terminated(req);
-        let mut body_sep_index = 0;
-        match has_headers {
+        let body_sep_index = match has_headers {
             None => return None,
-            Some(index) => body_sep_index = index,
-        }
+            Some(index) => index,
+        };
+
         let rest = &req[..body_sep_index];
         let body = &req[body_sep_index + 4..];
         Some((String::from_utf8_lossy(rest).to_string(), body.to_vec()))

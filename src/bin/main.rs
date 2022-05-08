@@ -42,8 +42,7 @@ fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
         .set_nonblocking(true)
         .expect("Could not set socket nonblocking");
     loop {
-        // println!("{}",data.len());
-        // println!("{}",String::from_utf8_lossy(buffer.as_slice()));
+
         match stream.read(&mut buffer) {
             Ok(_) => data.extend(&buffer),
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -51,6 +50,11 @@ fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
                 println!("over here");
                 break;
             }
+        }
+        let read_size = data.iter().map(|&x| x as u64).sum::<u64>();
+        if read_size == 0u64 {
+            data.clear();
+            break;
         }
     }
     data
@@ -68,7 +72,7 @@ fn process_stream(mut stream: TcpStream) {
             data.extend(read_stream(&mut stream));
             if data.len() != 0 {
                 break;
-            } else if idle_timer.elapsed().as_secs() >= KEEP_ALIVE_TIMEOUT as u64 {
+            } else if idle_timer.elapsed().as_secs() >= KEEP_ALIVE_TIMEOUT as u64 || num_requests >= MAX_KEEP_ALIVE_REQUESTS {
                 return;
             } else if *OPEN_STREAMS.read().unwrap() >= *OPEN_THREADS.read().unwrap() {
                 if CONTROL_STATS.read().unwrap().thread_index == thread_index {
@@ -199,6 +203,7 @@ fn handle_request(stream: &mut TcpStream, request: &HttpRequest) {
     };
     stream.set_nonblocking(false);
     stream.write_all(response.to_vec().as_slice());
+    stream.flush().unwrap();
 }
 
 fn path_setup() {
@@ -218,7 +223,6 @@ fn main() {
         pool.spawn(|| {
             process_stream(stream.unwrap());
             *OPEN_STREAMS.write().unwrap() -= 1;
-            // *OPEN_THREADS.write().unwrap() = (&pool).current_num_threads() as u32;
         });
     }
 }

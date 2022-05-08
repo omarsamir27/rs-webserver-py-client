@@ -23,3 +23,6 @@ fsio = "0.3.0"
 new_mime_guess = "4.0.1"
 tree_magic = "0.2.3"
 rand = "0.8.5"
+num_cpus = "1.13.1"
+stopwatch = { git = "https://github.com/ellisonch/rust-stopwatch.git" }
+fragile = "1.2.0"

@@ -228,7 +228,7 @@ impl HttpRequest {
             requested_object: requested_object.to_string(),
             version,
             headers,
-            body
+            body,
         })
     }
 }

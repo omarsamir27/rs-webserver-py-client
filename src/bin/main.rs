@@ -16,10 +16,10 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
 use std::sync::RwLock;
-use std::{env, fs, io, net};
+use std::time::Duration;
+use std::{env, fs, io, mem, net};
 use stopwatch::Stopwatch;
 
-// static conf : Vec<i32> = Vec::default();
 lazy_static! {
     static ref OPEN_STREAMS: RwLock<u32> = RwLock::new(0);
     static ref CONTROL_STATS: RwLock<ControlStat> = ControlStat::new();
@@ -35,29 +35,52 @@ fn setup() -> TcpListener {
     tcp_listener
 }
 
-fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
-    let mut buffer = vec![0u8; 1024];
-    let mut data: Vec<u8> = Vec::with_capacity(1024);
-    stream
-        .set_nonblocking(true)
-        .expect("Could not set socket nonblocking");
-    loop {
+// fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
+//     let mut buffer = vec![0u8; 1024];
+//     let mut data: Vec<u8> = Vec::with_capacity(4*1024);
+//     stream
+//         .set_nonblocking(true)
+//         .expect("Could not set socket nonblocking");
+//     loop {
+//
+//         match stream.read_to_end(&mut buffer) {
+//             Ok(_) => {
+//                 let mut result = 0u64;
+//                 for i in 0..buffer.len() {
+//                     result+= buffer[i] as u64;
+//                 };
+//                 if result == 0u64 {
+//                     buffer.clear();
+//                     break;
+//                 }
+//                 data.append(&mut buffer);
+//                 buffer = vec![0u8;2*data.len()];
+//             },
+//             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+//             Err(_) => {
+//                 println!("over here");
+//                 break;
+//             }
+//         }
+//         // let read_size = data.iter().map(|&x| x as u64).sum::<u64>();
+//         // let mut result = 0u64;
+//         // for i in 0..buffer.len() {
+//         //     result+= buffer[i] as u64;
+//         // };
+//         // if result == 0u64 {
+//         //     buffer.clear();
+//         //     break;
+//         // }
+//     }
+//     drop(buffer);
+//     data
+// }
 
-        match stream.read(&mut buffer) {
-            Ok(_) => data.extend(&buffer),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-            Err(_) => {
-                println!("over here");
-                break;
-            }
-        }
-        let read_size = data.iter().map(|&x| x as u64).sum::<u64>();
-        if read_size == 0u64 {
-            data.clear();
-            break;
-        }
-    }
-    data
+fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    stream.set_read_timeout(Option::from(Duration::from_millis(5)));
+    stream.read_to_end(&mut buffer);
+    buffer
 }
 
 fn process_stream(mut stream: TcpStream) {
@@ -72,7 +95,9 @@ fn process_stream(mut stream: TcpStream) {
             data.extend(read_stream(&mut stream));
             if data.len() != 0 {
                 break;
-            } else if idle_timer.elapsed().as_secs() >= KEEP_ALIVE_TIMEOUT as u64 || num_requests >= MAX_KEEP_ALIVE_REQUESTS {
+            } else if idle_timer.elapsed().as_secs() >= KEEP_ALIVE_TIMEOUT as u64
+                || num_requests >= MAX_KEEP_ALIVE_REQUESTS
+            {
                 return;
             } else if *OPEN_STREAMS.read().unwrap() >= *OPEN_THREADS.read().unwrap() {
                 if CONTROL_STATS.read().unwrap().thread_index == thread_index {
@@ -92,6 +117,7 @@ fn process_stream(mut stream: TcpStream) {
                 data.extend(read_stream(&mut stream));
             } else if read_request.as_ref().unwrap().is_body_complete_or_absent() {
                 request = read_request.unwrap().clone();
+                idle_timer.reset();
                 break;
             } else {
                 request = read_request.unwrap().clone();

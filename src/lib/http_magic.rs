@@ -170,7 +170,7 @@ impl HttpRequest {
             None => return true,
             Some(vec) => usize::from_str(vec[0].as_str().trim()).unwrap(),
         };
-        body_len == self.body.len()
+        self.body.len() >= body_len
     }
     pub fn headers_terminated(msg: &[u8]) -> Option<usize> {
         let end_index = unsafe {

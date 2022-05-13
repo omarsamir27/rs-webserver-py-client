@@ -1,0 +1,3 @@
+GET Apple_logo_black.svg 127.0.0.1 (1025)
+GET index.html 127.0.0.1 (1025)
+GET pic.jpg 127.0.0.1 (1025)

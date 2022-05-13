@@ -1,5 +1,4 @@
 extern crate core;
-use fragile::Fragile;
 use fsio::file;
 use fsio::path::as_path::AsPath;
 use lazy_static::lazy_static;
@@ -17,9 +16,9 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 
 use std::sync::RwLock;
 use std::{env, fs, io, net};
+use std::time::Duration;
 use stopwatch::Stopwatch;
 
-// static conf : Vec<i32> = Vec::default();
 lazy_static! {
     static ref OPEN_STREAMS: RwLock<u32> = RwLock::new(0);
     static ref CONTROL_STATS: RwLock<ControlStat> = ControlStat::new();
@@ -35,29 +34,13 @@ fn setup() -> TcpListener {
     tcp_listener
 }
 
-fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
-    let mut buffer = vec![0u8; 1024];
-    let mut data: Vec<u8> = Vec::with_capacity(1024);
-    stream
-        .set_nonblocking(true)
-        .expect("Could not set socket nonblocking");
-    loop {
-        match stream.read(&mut buffer) {
-            Ok(_) => data.extend(&buffer),
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-            Err(_) => {
-                println!("over here");
-                break;
-            }
-        }
-        let read_size = data.iter().map(|&x| x as u64).sum::<u64>();
-        if read_size == 0u64 {
-            data.clear();
-            break;
-        }
+    fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        stream.set_read_timeout(Option::from(Duration::from_millis(5)));
+        stream.read_to_end(&mut buffer);
+        buffer
     }
-    data
-}
+
 
 fn process_stream(mut stream: TcpStream, VERBOSE: bool) {
     *OPEN_THREADS.write().unwrap() += 1;

@@ -13,7 +13,7 @@ use libwebs::http_magic::{
 use libwebs::utils;
 
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
 
 use std::sync::RwLock;
 use std::{env, fs, io, net};
@@ -42,7 +42,6 @@ fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
         .set_nonblocking(true)
         .expect("Could not set socket nonblocking");
     loop {
-
         match stream.read(&mut buffer) {
             Ok(_) => data.extend(&buffer),
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -60,7 +59,7 @@ fn read_stream(stream: &mut TcpStream) -> Vec<u8> {
     data
 }
 
-fn process_stream(mut stream: TcpStream) {
+fn process_stream(mut stream: TcpStream, VERBOSE: bool) {
     *OPEN_THREADS.write().unwrap() += 1;
     let mut idle_timer = Stopwatch::start_new();
     let mut num_requests = 0u16;
@@ -72,7 +71,9 @@ fn process_stream(mut stream: TcpStream) {
             data.extend(read_stream(&mut stream));
             if data.len() != 0 {
                 break;
-            } else if idle_timer.elapsed().as_secs() >= KEEP_ALIVE_TIMEOUT as u64 || num_requests >= MAX_KEEP_ALIVE_REQUESTS {
+            } else if idle_timer.elapsed().as_secs() >= KEEP_ALIVE_TIMEOUT as u64
+                || num_requests >= MAX_KEEP_ALIVE_REQUESTS
+            {
                 return;
             } else if *OPEN_STREAMS.read().unwrap() >= *OPEN_THREADS.read().unwrap() {
                 if CONTROL_STATS.read().unwrap().thread_index == thread_index {
@@ -103,7 +104,15 @@ fn process_stream(mut stream: TcpStream) {
             }
         }
         num_requests += 1;
-        handle_request(&mut stream, &request);
+        if !handle_request(&mut stream, &request) {
+            stream.shutdown(Shutdown::Both);
+            return;
+        }
+
+        if VERBOSE {
+            request.print_nobody();
+            utils::horizontal_line();
+        }
         if matches!(request.version, HttpVersion::HTTP1x0)
             || num_requests >= MAX_KEEP_ALIVE_REQUESTS
             || idle_timer.elapsed().as_secs() >= 5
@@ -113,7 +122,7 @@ fn process_stream(mut stream: TcpStream) {
     }
 }
 
-fn handle_request(stream: &mut TcpStream, request: &HttpRequest) {
+fn handle_request(stream: &mut TcpStream, request: &HttpRequest) -> bool {
     let response = if matches!(request.method, HttpMethod::GET) {
         let path = String::from(match request.requested_object.as_ref() {
             "/" | "/index.html" | "/index.htm" => "index.html".to_string(),
@@ -186,24 +195,31 @@ fn handle_request(stream: &mut TcpStream, request: &HttpRequest) {
                 body,
             }
         }
-    } else {
-        let body = fs::read(NOT_FOUND).unwrap();
+    } else if !matches!(request.method, HttpMethod::BadMethod) {
+        let body = fs::read(METHOD_NOT_ALLOWED).unwrap();
         HttpResponse {
             version: request.version.clone(),
-            status: HttpStatusCode::Not_Found,
+            status: HttpStatusCode::Method_Not_Allowed,
             headers: HttpHeaders::from([
                 (
                     "Content-Type".to_string(),
-                    vec![utils::deduce_file_mime(NOT_FOUND.as_path())],
+                    vec![utils::deduce_file_mime(METHOD_NOT_ALLOWED.as_path())],
                 ),
                 ("Content-Length".to_string(), vec![body.len().to_string()]),
+                (
+                    "Allowed".to_string(),
+                    vec!["POST".to_string(), "GET".to_string()],
+                ),
             ]),
             body,
         }
+    } else {
+        return false;
     };
     stream.set_nonblocking(false);
     stream.write_all(response.to_vec().as_slice());
     stream.flush().unwrap();
+    return true;
 }
 
 fn path_setup() {
@@ -213,6 +229,19 @@ fn path_setup() {
 
 fn main() {
     path_setup();
+    let cmd_args: Vec<String> = std::env::args().collect();
+    let VERBOSE = match cmd_args.get(1).unwrap_or(&"".to_string()).as_str() {
+        "help" => {
+            println!("v --------- verbose requests");
+            return;
+        }
+        "v" => true,
+        "" => false,
+        _ => {
+            println!("-v --------- verbose requests");
+            return;
+        }
+    };
     let listener = setup();
 
     let pool = rayon::ThreadPoolBuilder::new().build().unwrap();
@@ -220,8 +249,8 @@ fn main() {
     for stream in listener.incoming() {
         *OPEN_STREAMS.write().unwrap() += 1;
         *OPEN_THREADS.write().unwrap() = pool.current_num_threads() as u32;
-        pool.spawn(|| {
-            process_stream(stream.unwrap());
+        pool.spawn(move || {
+            process_stream(stream.unwrap(), VERBOSE.clone());
             *OPEN_STREAMS.write().unwrap() -= 1;
         });
     }

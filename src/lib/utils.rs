@@ -32,3 +32,6 @@ pub fn random_string(len: usize) -> String {
         .map(|c| char::from(c))
         .collect::<String>()
 }
+pub fn horizontal_line() {
+    println!("-------------------------------------------------------------------------------");
+}

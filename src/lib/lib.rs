@@ -17,6 +17,7 @@ pub mod config {
     pub const NOT_FOUND: &str = "404.html";
     pub const CONFLICT: &str = "409.html";
     pub const CREATED: &str = "201.html";
+    pub const METHOD_NOT_ALLOWED: &str = "405.html";
 }
 
 pub mod control {
@@ -46,68 +47,3 @@ pub mod control {
         }
     }
 }
-
-//     pub struct ConnectionStats {
-//         num_requests: u16,
-//         idle_since_sw: stopwatch::Stopwatch,
-//     }
-//     impl ConnectionStats {
-//         pub fn self_life_check(&self) -> bool {
-//             // true if should die
-//             self.num_requests == MAX_KEEP_ALIVE_REQUESTS
-//                 || self.idle_since_sw.elapsed().as_secs() == KEEP_ALIVE_TIMEOUT as u64
-//         }
-//     }
-//
-//     impl Default for ConnectionStats {
-//         fn default() -> Self {
-//             ConnectionStats {
-//                 num_requests: 0,
-//                 idle_since_sw: stopwatch::Stopwatch::new(),
-//             }
-//         }
-//     }
-//     impl ConnectionStats {
-//         pub fn reset(&mut self) {
-//             self.num_requests = 0;
-//             self.idle_since_sw.reset();
-//         }
-//     }
-//
-//     pub struct ThreadStats {
-//         processing: bool,
-//         stats: ConnectionStats,
-//         pub verdict: AtomicBool, // true if should die
-//     }
-//     impl ThreadStats {
-//         pub fn must_die(&self) -> bool {
-//             self.verdict.load(Ordering::Relaxed) || self.stats.self_life_check()
-//         }
-//         pub fn die(&mut self) {
-//             self.verdict.store(false, Ordering::Relaxed);
-//             self.processing = false;
-//             self.stats = ConnectionStats::default();
-//         }
-//         pub fn restart_timer(&mut self) {
-//             self.stats.idle_since_sw.restart();
-//         }
-//         pub fn increment_requests(&mut self) {
-//             self.stats.num_requests += 1;
-//         }
-//         pub fn set_processing(&mut self, processing: bool) {
-//             self.processing = processing;
-//         }
-//         pub fn time_since_idle(&self) -> i64 {
-//             self.stats.idle_since_sw.elapsed_ms()
-//         }
-//     }
-//     impl Default for ThreadStats {
-//         fn default() -> Self {
-//             ThreadStats {
-//                 processing: false,
-//                 stats: ConnectionStats::default(),
-//                 verdict: AtomicBool::new(false),
-//             }
-//         }
-//     }
-// }

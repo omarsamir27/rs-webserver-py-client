@@ -27,7 +27,10 @@ def generate_request(command: str):
     if len(req_list) < 4:
         PORT = 80
     else:
-        PORT = req_list[3][req_list[3].find("(") + 1 : req_list[3].find(")")]
+        if len(req_list[3]) == 4:
+            PORT = int(req_list[3])
+        else:
+            PORT = int(req_list[3][req_list[3].find("(") + 1 : req_list[3].find(")")])
 
     request = f"{request_type} /{file_name} HTTP/1.1\r\nHost: {HOST}:{PORT}\r\n"
     return request, request_type, file_name
@@ -94,25 +97,34 @@ if __name__ == "__main__":
 
                     request += "\r\n"
                     s.sendall(request.encode())
-                    data = recv_timeout(s, 0.5)
+                    data = recv_timeout(s, 2)
                     data = data.split(b"\r\n\r\n")
                     msg_len = data[0].split(b": ")[-1]
+                    response_code = data[0].split(b" ")[1]
                     content = data[1]
                     print(data[0].decode("utf-8"))
-                    with open(filename, "wb") as f:
-                        f.write(content)
-                    copyfile(filename, os.path.join(os.getcwd() , "cache", filename))
-                    cache[filename] = os.path.join(os.getcwd(), "cache")
+                    print("")
+                    if int(response_code) < 400:
+                        with open(filename, "wb") as f:
+                            f.write(content)
+                        copyfile(filename, os.path.join(os.getcwd() , "cache", filename))
+                        cache[filename] = os.path.join(os.getcwd(), "cache")
 
                 # POST --> read the file and send it to server then wait for the server's response
                 elif request_type == "POST":
-                    with open(filename, "rb") as f:
-                        data = f.read()
-                        request += f"Content-Length: {len(data)}\r\n\r\n"
-                        to_be_sent = request.encode() + data
-                        s.sendall(to_be_sent)
-                        rcvd = recv_timeout(s, 0.5)
-                        print(rcvd)
+                    try:
+                        f = open(filename, "rb")
+                    except:
+                        print(f"[FILE NOT FOUND] Can't post {filename} as it doesn't exist.")
+                        continue
+                    data = f.read()
+                    f.close()
+                    request += f"Content-Length: {len(data)}\r\n\r\n"
+                    to_be_sent = request.encode() + data
+                    s.sendall(to_be_sent)
+                    rcvd = recv_timeout(s, 1)
+                    print(rcvd.split(b"\r\n\r\n")[0].decode("utf-8"))
+                    print("")
 
     with open("manifest.json", "w") as manifest:
         dump(cache, manifest)

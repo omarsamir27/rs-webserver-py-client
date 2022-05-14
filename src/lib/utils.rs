@@ -29,6 +29,9 @@ pub fn random_string(len: usize) -> String {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(len)
-        .map(|c|char::from(c))
+        .map(|c| char::from(c))
         .collect::<String>()
+}
+pub fn horizontal_line() {
+    println!("-------------------------------------------------------------------------------");
 }

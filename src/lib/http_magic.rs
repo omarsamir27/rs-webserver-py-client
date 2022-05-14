@@ -2,8 +2,7 @@ use crate::http_magic::HttpMethod::GET;
 use crate::http_magic::HttpVersion::HTTP1x1;
 use crate::utils;
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
-use std::io::Write;
+use std::fmt::{write, Display, Formatter};
 use std::str::FromStr;
 
 type Result<T> = std::result::Result<T, HttpParseError>;
@@ -42,6 +41,7 @@ pub enum HttpStatusCode {
     Created = 201,
     Not_Found = 404,
     Conflict = 409,
+    Method_Not_Allowed = 405,
 }
 impl Display for HttpStatusCode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -50,6 +50,7 @@ impl Display for HttpStatusCode {
             HttpStatusCode::Not_Found => (404, "Not Found"),
             HttpStatusCode::Conflict => (409, "Conflict"),
             HttpStatusCode::Created => (201, "Created"),
+            HttpStatusCode::Method_Not_Allowed => (405, "Method Not Allowed"),
             _ => (-1, "BAD"),
         };
         write!(f, "{} {}", code, codename)
@@ -60,13 +61,47 @@ impl Display for HttpStatusCode {
 pub enum HttpMethod {
     GET,
     POST,
+    HEAD,
+    PUT,
+    DELETE,
+    CONNECT,
+    OPTIONS,
+    TRACE,
+    BadMethod,
 }
+
+impl Display for HttpMethod {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
 impl HttpMethod {
+    fn to_string(&self) -> String {
+        let string = match self {
+            GET => "GET",
+            HttpMethod::POST => "POST",
+            HttpMethod::HEAD => "HEAD",
+            HttpMethod::PUT => "PUT",
+            HttpMethod::DELETE => "DELETE",
+            HttpMethod::CONNECT => "CONNECT",
+            HttpMethod::OPTIONS => "OPTIONS",
+            HttpMethod::TRACE => "TRACE",
+            HttpMethod::BadMethod => "BAD METHOD",
+        };
+        string.to_string()
+    }
     pub fn new(method: &str) -> Result<HttpMethod> {
         match method.to_lowercase().as_str() {
             "get" => Ok(HttpMethod::GET),
             "post" => Ok(HttpMethod::POST),
-            _ => Err(HttpParseError::new("invalid http method")),
+            "head" => Ok(HttpMethod::HEAD),
+            "put" => Ok(HttpMethod::PUT),
+            "delete" => Ok(HttpMethod::DELETE),
+            "connect" => Ok(HttpMethod::CONNECT),
+            "options" => Ok(HttpMethod::OPTIONS),
+            "trace" => Ok(HttpMethod::TRACE),
+            _ => Ok(HttpMethod::BadMethod),
         }
     }
 }
@@ -166,12 +201,21 @@ impl Default for HttpRequest {
     }
 }
 impl HttpRequest {
+    pub fn print_nobody(&self) {
+        println!(
+            "{} {} {}\r\n{}",
+            self.method,
+            self.requested_object,
+            self.version,
+            http_headers_fmt(&self.headers)
+        )
+    }
     pub fn is_body_complete_or_absent(&self) -> bool {
         let body_len = match self.headers.get("Content-Length") {
             None => return true,
             Some(vec) => usize::from_str(vec[0].as_str().trim()).unwrap(),
         };
-        body_len == self.body.len()
+        self.body.len() >= body_len
     }
     pub fn headers_terminated(msg: &[u8]) -> Option<usize> {
         let end_index = unsafe {
@@ -187,11 +231,11 @@ impl HttpRequest {
     }
     fn split_body_from_msg(req: &[u8]) -> Option<(String, Vec<u8>)> {
         let has_headers = HttpRequest::headers_terminated(req);
-        let mut body_sep_index = 0;
-        match has_headers {
+        let body_sep_index = match has_headers {
             None => return None,
-            Some(index) => body_sep_index = index,
-        }
+            Some(index) => index,
+        };
+
         let rest = &req[..body_sep_index];
         let body = &req[body_sep_index + 4..];
         Some((String::from_utf8_lossy(rest).to_string(), body.to_vec()))
@@ -228,7 +272,7 @@ impl HttpRequest {
             requested_object: requested_object.to_string(),
             version,
             headers,
-            body
+            body,
         })
     }
 }

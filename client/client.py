@@ -3,6 +3,7 @@ import os
 from json import dump, load
 from shutil import copyfile
 from time import sleep, time
+import sys
 
 HOST = "127.0.0.1"
 PORT = 1025
@@ -74,7 +75,8 @@ def recv_timeout(socket, timeout=2):
 if __name__ == "__main__":
 
     # open inputs
-    with open("commands.txt") as fp:
+    file = sys.argv[1]
+    with open(file) as fp:
         while True:
             line = fp.readline()
             if line == "\n":

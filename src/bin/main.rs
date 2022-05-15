@@ -141,7 +141,6 @@ fn handle_request(stream: &mut TcpStream, request: &HttpRequest) -> bool {
             }
         }
     } else if matches!(request.method, HttpMethod::POST) {
-        println!("{}", env::current_dir().unwrap().display());
         let path = String::from(&request.requested_object[1..]);
         if path.as_path().exists() {
             let body = fs::read(CONFLICT).unwrap();
@@ -162,7 +161,6 @@ fn handle_request(stream: &mut TcpStream, request: &HttpRequest) -> bool {
                 "/" => utils::random_string(MAX_RAND_FILENAME),
                 _ => request.requested_object[1..].to_string().clone(),
             };
-            println!("{}", target_filename);
             fs::write(target_filename, request.body.as_slice());
             let body = fs::read(CREATED).unwrap();
             HttpResponse {
